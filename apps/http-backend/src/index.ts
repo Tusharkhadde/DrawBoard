@@ -25,67 +25,77 @@ function looksLikeBcryptHash(value: string) {
 // ── Auth ──────────────────────────────────────────────────────
 
 app.post("/signup", async (req, res) => {
-    const parsed = CreateUserSchema.safeParse(req.body);
-    if (!parsed.success) {
-        res.status(400).json({ message: "Invalid inputs", errors: parsed.error.flatten() });
-        return;
+    try {
+        const parsed = CreateUserSchema.safeParse(req.body);
+        if (!parsed.success) {
+            res.status(400).json({ message: "Invalid inputs", errors: parsed.error.flatten() });
+            return;
+        }
+
+        const { password, name } = parsed.data;
+        const email = normalizeEmail(parsed.data.email);
+
+        const existing = await prismaClient.user.findUnique({ where: { email } });
+        if (existing) {
+            res.status(409).json({ message: "User already exists with this email" });
+            return;
+        }
+
+        const hashed = await bcrypt.hash(password, 10);
+        const user = await prismaClient.user.create({
+            data: { email, password: hashed, name },
+        });
+
+        res.status(201).json({ userId: user.id });
+    } catch (error) {
+        console.error("[signup]", error);
+        res.status(500).json({ message: "Internal server error. Please try again later." });
     }
-
-    const { password, name } = parsed.data;
-    const email = normalizeEmail(parsed.data.email);
-
-    const existing = await prismaClient.user.findUnique({ where: { email } });
-    if (existing) {
-        res.status(409).json({ message: "User already exists with this email" });
-        return;
-    }
-
-    const hashed = await bcrypt.hash(password, 10);
-    const user = await prismaClient.user.create({
-        data: { email, password: hashed, name },
-    });
-
-    res.status(201).json({ userId: user.id });
 });
 
 app.post("/signin", async (req, res) => {
-    const parsed = SigninSchema.safeParse(req.body);
-    if (!parsed.success) {
-        res.status(400).json({ message: "Invalid inputs", errors: parsed.error.flatten() });
-        return;
+    try {
+        const parsed = SigninSchema.safeParse(req.body);
+        if (!parsed.success) {
+            res.status(400).json({ message: "Invalid inputs", errors: parsed.error.flatten() });
+            return;
+        }
+
+        const password = parsed.data.password;
+        const email = normalizeEmail(parsed.data.email);
+
+        const user = await prismaClient.user.findUnique({ where: { email } });
+        if (!user || !user.password) {
+            res.status(401).json({
+                message: user && !user.password
+                    ? "This account uses Google. Continue with Google to sign in."
+                    : "Invalid email or password",
+            });
+            return;
+        }
+
+        const valid = looksLikeBcryptHash(user.password)
+            ? await bcrypt.compare(password, user.password)
+            : password === user.password;
+        if (!valid) {
+            res.status(401).json({ message: "Invalid email or password" });
+            return;
+        }
+
+        if (!looksLikeBcryptHash(user.password)) {
+            const hashed = await bcrypt.hash(password, 10);
+            await prismaClient.user.update({
+                where: { id: user.id },
+                data: { password: hashed },
+            });
+        }
+
+        const token = await signJwt(user.id);
+        res.json({ token });
+    } catch (error) {
+        console.error("[signin]", error);
+        res.status(500).json({ message: "Internal server error. Please try again later." });
     }
-
-    const password = parsed.data.password;
-    const email = normalizeEmail(parsed.data.email);
-
-    const user = await prismaClient.user.findUnique({ where: { email } });
-    if (!user || !user.password) {
-        res.status(401).json({
-            message: user && !user.password
-                ? "This account uses Google. Continue with Google to sign in."
-                : "Invalid email or password",
-        });
-        return;
-    }
-
-    const valid = looksLikeBcryptHash(user.password)
-        ? await bcrypt.compare(password, user.password)
-        : password === user.password;
-    if (!valid) {
-        res.status(401).json({ message: "Invalid email or password" });
-        return;
-    }
-
-    if (!looksLikeBcryptHash(user.password)) {
-        const hashed = await bcrypt.hash(password, 10);
-        await prismaClient.user.update({
-            where: { id: user.id },
-            data: { password: hashed },
-        });
-    }
-
-    const token = await signJwt(user.id);
-    res.json({ token });
 });
 
 app.post("/auth/google", async (req, res) => {
