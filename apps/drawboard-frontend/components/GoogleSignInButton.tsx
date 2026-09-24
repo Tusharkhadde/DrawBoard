@@ -87,13 +87,15 @@ export function GoogleSignInButton({ mode = "signin", disabled, onCredential, on
     }
   }, []);
 
+  const initializedRef = useRef(false);
+
   useEffect(() => {
-    if (!clientId || disabled) return;
+    if (!clientId || initializedRef.current) return;
     let cancelled = false;
 
     loadGis()
       .then(() => {
-        if (cancelled || !hostRef.current || !window.google?.accounts?.id) return;
+        if (cancelled || !hostRef.current || !window.google?.accounts?.id || initializedRef.current) return;
         window.google.accounts.id.initialize({
           client_id: clientId,
           callback: (response) => {
@@ -111,6 +113,7 @@ export function GoogleSignInButton({ mode = "signin", disabled, onCredential, on
           width: 384,
           logo_alignment: "left",
         });
+        initializedRef.current = true;
         setReady(true);
       })
       .catch(() => {
@@ -120,7 +123,7 @@ export function GoogleSignInButton({ mode = "signin", disabled, onCredential, on
     return () => {
       cancelled = true;
     };
-  }, [clientId, disabled, handleCredential, mode]);
+  }, [clientId, handleCredential]);
 
   if (!clientId) {
     return (
