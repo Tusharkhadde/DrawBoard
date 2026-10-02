@@ -60,9 +60,9 @@ function Dashboard() {
     setCreating(true);
     setCreateError("");
     try {
-      const room = await api.post<{ id: number }>("/room", { slug: normalized });
+      const room = await api.post<{ publicKey: string }>("/room", { slug: normalized });
       toast.success(`Room "${normalized}" created`);
-      router.push(`/canvas/${room.id}`);
+      router.push(`/canvas/${room.publicKey}`);
     } catch (e) {
       setCreateError(e instanceof ApiError ? e.message : "Couldn't create the room. Please try again.");
     } finally {
@@ -75,7 +75,7 @@ function Dashboard() {
     if (joining) return;
     let value = join.trim();
     try {
-      if (/^https?:\/\//i.test(value)) value = new URL(value).pathname.match(/^\/canvas\/([1-9]\d*)\/?$/)?.[1] || "";
+      if (/^https?:\/\//i.test(value)) value = new URL(value).pathname.match(/^\/canvas\/([^/]+)\/?$/)?.[1] || "";
     } catch {
       value = "";
     }
@@ -86,8 +86,8 @@ function Dashboard() {
     setJoining(true);
     setJoinError("");
     try {
-      const id = /^[1-9]\d*$/.test(value) ? value : (await api.get<{ id: number }>(`/room/${encodeURIComponent(value)}`)).id;
-      router.push(`/canvas/${id}`);
+      const room = await api.get<{ publicKey: string }>(`/room/${encodeURIComponent(value)}`);
+      router.push(`/canvas/${room.publicKey}`);
     } catch (e) {
       setJoinError(e instanceof ApiError ? e.message : "Couldn't find that room. Check the link and try again.");
     } finally {
@@ -251,7 +251,7 @@ function EmptyState({ icon: Icon, title, description, children }: { icon: typeof
 
 function RoomCard({ room }: { room: RoomResponseType }) {
   const [copied, setCopied] = useState(false);
-  const href = `/canvas/${room.id}`;
+  const href = `/canvas/${room.publicKey}`;
 
   const copy = useCallback(async () => {
     try {

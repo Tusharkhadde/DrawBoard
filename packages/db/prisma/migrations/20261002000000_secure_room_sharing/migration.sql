@@ -1,0 +1,14 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+ALTER TABLE "Room" ADD COLUMN "publicKey" TEXT;
+UPDATE "Room" SET "publicKey" = gen_random_uuid()::text WHERE "publicKey" IS NULL;
+ALTER TABLE "Room" ALTER COLUMN "publicKey" SET NOT NULL;
+CREATE UNIQUE INDEX "Room_publicKey_key" ON "Room"("publicKey");
+CREATE TABLE "RoomAccess" ("roomId" INTEGER NOT NULL, "userId" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY ("roomId","userId"));
+CREATE TABLE "AccessRequest" ("id" SERIAL NOT NULL, "roomId" INTEGER NOT NULL, "userId" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'pending', "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "AccessRequest_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "AccessRequest_roomId_userId_key" ON "AccessRequest"("roomId","userId");
+CREATE INDEX "AccessRequest_roomId_status_idx" ON "AccessRequest"("roomId","status");
+CREATE INDEX "RoomAccess_userId_idx" ON "RoomAccess"("userId");
+ALTER TABLE "RoomAccess" ADD CONSTRAINT "RoomAccess_roomId_fkey" FOREIGN KEY ("roomId") REFERENCES "Room"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "RoomAccess" ADD CONSTRAINT "RoomAccess_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "AccessRequest" ADD CONSTRAINT "AccessRequest_roomId_fkey" FOREIGN KEY ("roomId") REFERENCES "Room"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "AccessRequest" ADD CONSTRAINT "AccessRequest_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

@@ -188,20 +188,24 @@ app.post("/room", middleware, async (req, res) => {
         data: { slug, adminId: req.userId! },
     });
 
-    res.status(201).json({ id: room.id, slug: room.slug });
+    res.status(201).json({ id: room.id, publicKey: room.publicKey, slug: room.slug });
 });
 
-app.get("/room/:slug", async (req, res) => {
-    const slug = req.params.slug;
-    // Board links use the numeric id, invite links use the slug — accept either.
-    const room = /^\d+$/.test(slug)
-        ? await prismaClient.room.findUnique({ where: { id: Number(slug) } })
-        : await prismaClient.room.findUnique({ where: { slug } });
+app.get("/room/:key", middleware, async (req, res) => {
+    const key = req.params.key;
+    const room = await prismaClient.room.findUnique({ where: { publicKey: key } });
     if (!room) {
         res.status(404).json({ message: "Room not found" });
         return;
     }
-    res.json({ id: room.id, slug: room.slug, adminId: room.adminId, createdAt: room.createdAt.toISOString() });
+    const allowed = room.adminId === req.userId || !!(await prismaClient.roomAccess.findUnique({ where: { roomId_userId: { roomId: room.id, userId: req.userId! } } }));
+    if (!allowed) {
+        const request = await prismaClient.accessRequest.findUnique({ where: { roomId_userId: { roomId: room.id, userId: req.userId! } } });
+        if (!request) await prismaClient.accessRequest.create({ data: { roomId: room.id, userId: req.userId! } });
+        res.status(403).json({ message: "Access requested. The room owner must approve you.", accessRequested: true });
+        return;
+    }
+    res.json({ id: room.id, publicKey: room.publicKey, slug: room.slug, adminId: room.adminId, createdAt: room.createdAt.toISOString() });
 });
 
 app.get("/rooms", middleware, async (req, res) => {
@@ -210,7 +214,22 @@ app.get("/rooms", middleware, async (req, res) => {
         orderBy: { createdAt: "desc" },
         take: 50,
     });
-    res.json(rooms.map(r => ({ id: r.id, slug: r.slug, adminId: r.adminId, createdAt: r.createdAt.toISOString() })));
+    res.json(rooms.map(r => ({ id: r.id, publicKey: r.publicKey, slug: r.slug, adminId: r.adminId, createdAt: r.createdAt.toISOString() })));
+});
+
+app.get("/rooms/:key/access-requests", middleware, async (req, res) => {
+    const room = await prismaClient.room.findUnique({ where: { publicKey: req.params.key } });
+    if (!room || room.adminId !== req.userId) return void res.status(403).json({ message: "Only the owner can manage access." });
+    const requests = await prismaClient.accessRequest.findMany({ where: { roomId: room.id, status: "pending" }, include: { user: { select: { id: true, name: true, email: true, photo: true } } }, orderBy: { createdAt: "asc" } });
+    res.json({ requests });
+});
+
+app.post("/rooms/:key/access-requests/:requestId/approve", middleware, async (req, res) => {
+    const room = await prismaClient.room.findUnique({ where: { publicKey: req.params.key } });
+    const request = room ? await prismaClient.accessRequest.findUnique({ where: { id: Number(req.params.requestId) } }) : null;
+    if (!room || room.adminId !== req.userId || !request || request.roomId !== room.id) return void res.status(403).json({ message: "Only the owner can approve this request." });
+    await prismaClient.$transaction([prismaClient.roomAccess.upsert({ where: { roomId_userId: { roomId: room.id, userId: request.userId } }, update: {}, create: { roomId: room.id, userId: request.userId } }), prismaClient.accessRequest.update({ where: { id: request.id }, data: { status: "approved" } })]);
+    res.json({ ok: true });
 });
 
 // ── User Search ─────────────────────────────────────────────
@@ -238,15 +257,17 @@ app.get("/users/search", middleware, async (req, res) => {
 
 // ── Chats / Drawings ─────────────────────────────────────────
 
-app.get("/chats/:roomId", async (req, res) => {
-    const roomId = Number(req.params.roomId);
-    if (Number.isNaN(roomId)) {
-        res.status(400).json({ message: "Invalid room id" });
+app.get("/chats/:key", middleware, async (req, res) => {
+    const room = await prismaClient.room.findUnique({ where: { publicKey: req.params.key } });
+    if (!room) {
+        res.status(404).json({ message: "Room not found" });
         return;
     }
+    const allowed = room.adminId === req.userId || !!(await prismaClient.roomAccess.findUnique({ where: { roomId_userId: { roomId: room.id, userId: req.userId! } } }));
+    if (!allowed) return void res.status(403).json({ message: "You do not have access to this room." });
 
     const messages = await prismaClient.chat.findMany({
-        where: { roomId },
+        where: { roomId: room.id },
         orderBy: { id: "desc" },
         take: 1000,
     });

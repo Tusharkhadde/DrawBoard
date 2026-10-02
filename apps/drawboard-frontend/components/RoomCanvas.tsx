@@ -45,7 +45,7 @@ export function RoomCanvas({ roomId, isGuest = false }: RoomCanvasProps) {
     if (isGuest) return;
     const controller = new AbortController();
 
-    getExistingShapes(roomId, controller.signal)
+    getExistingShapes(roomId, controller.signal, token)
       .then((loaded) => {
         setShapes(loaded);
         setBoardError(null);
@@ -57,13 +57,13 @@ export function RoomCanvas({ roomId, isGuest = false }: RoomCanvasProps) {
       .finally(() => setIsLoadingBoard(false));
 
     return () => controller.abort();
-  }, [roomId, isGuest]);
+  }, [roomId, isGuest, token]);
 
   // 2. Room name for the header — resolves for numeric ids and slug links alike.
   useEffect(() => {
     if (isGuest) return;
     const controller = new AbortController();
-    fetch(`${HTTP_BACKEND}/room/${roomId}`, { signal: controller.signal })
+      fetch(`${HTTP_BACKEND}/room/${roomId}`, { headers: token ? { Authorization: token } : undefined, signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
       .then((room: { slug?: string } | null) => {
         if (room?.slug) setRoomName(room.slug);
@@ -72,7 +72,7 @@ export function RoomCanvas({ roomId, isGuest = false }: RoomCanvasProps) {
         // A missing name is cosmetic; the board still works.
       });
     return () => controller.abort();
-  }, [roomId, isGuest]);
+  }, [roomId, isGuest, token]);
 
   const connect = useCallback(() => {
     if (!isGuest && !token) return;
@@ -176,7 +176,7 @@ export function RoomCanvas({ roomId, isGuest = false }: RoomCanvasProps) {
               onClick={() => {
                 setIsLoadingBoard(true);
                 setBoardError(null);
-                getExistingShapes(roomId)
+                getExistingShapes(roomId, undefined, token)
                   .then((loaded) => setShapes(loaded))
                   .catch((error: unknown) =>
                     setBoardError(error instanceof Error ? error.message : "Couldn’t load this board.")

@@ -29,9 +29,9 @@ function normalizeShape(shape: unknown): Shape | null {
     return candidate as Shape;
 }
 
-export async function getExistingShapes(roomId: string, signal?: AbortSignal): Promise<Shape[]> {
+export async function getExistingShapes(roomId: string, signal?: AbortSignal, token?: string | null): Promise<Shape[]> {
         if (roomId === "guest") return [];
-        const res = await fetch(`${HTTP_BACKEND}/chats/${roomId}`, { signal });
+        const res = await fetch(`${HTTP_BACKEND}/chats/${roomId}`, { headers: token ? { Authorization: token } : undefined, signal });
         if (!res.ok) throw new Error("Couldn’t load this board. Check the room ID and try again.");
         const data = await res.json();
         const messages: { message: string }[] = data.messages ?? [];

@@ -39,6 +39,7 @@ export const SigninResponse = z.object({
 
 export const RoomResponse = z.object({
     id: z.number(),
+    publicKey: z.string(),
     slug: z.string(),
     adminId: z.string(),
     createdAt: z.string(),

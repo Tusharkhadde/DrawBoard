@@ -11,6 +11,7 @@ interface ConnectedClient {
     userId: string | null;
     isGuest: boolean;
     rooms: Set<string>;
+    roomIds: Map<string, number>;
 }
 
 const clients: ConnectedClient[] = [];
@@ -59,7 +60,7 @@ wss.on("connection", async (ws, request) => {
         userId = payload.userId;
     }
 
-    const client: ConnectedClient = { ws, userId, isGuest: clientIsGuest, rooms: new Set() };
+    const client: ConnectedClient = { ws, userId, isGuest: clientIsGuest, rooms: new Set(), roomIds: new Map() };
     clients.push(client);
 
     ws.on("message", async (raw) => {
@@ -80,7 +81,22 @@ wss.on("connection", async (ws, request) => {
                 ws.send(JSON.stringify({ type: "error", message: "roomId is required" }));
                 return;
             }
+            const room = await prismaClient.room.findUnique({ where: { publicKey: roomId } });
+            if (!room) {
+                ws.send(JSON.stringify({ type: "error", message: "Room not found" }));
+                return;
+            }
+            if (!client.isGuest) {
+                const allowed = room.adminId === client.userId || !!(await prismaClient.roomAccess.findUnique({ where: { roomId_userId: { roomId: room.id, userId: client.userId! } } }));
+                if (!allowed) {
+                    const request = await prismaClient.accessRequest.findUnique({ where: { roomId_userId: { roomId: room.id, userId: client.userId! } } });
+                    if (!request) await prismaClient.accessRequest.create({ data: { roomId: room.id, userId: client.userId! } });
+                    ws.send(JSON.stringify({ type: "access_required", message: "Access requested. Ask the owner to approve you." }));
+                    return;
+                }
+            }
             client.rooms.add(roomId);
+            client.roomIds.set(roomId, room.id);
             ws.send(JSON.stringify({ type: "join_room_ack", roomId }));
             return;
         }
@@ -88,6 +104,7 @@ wss.on("connection", async (ws, request) => {
         if (type === "leave_room") {
             const roomId = String(parsed.roomId ?? parsed.room ?? "");
             client.rooms.delete(roomId);
+            client.roomIds.delete(roomId);
             return;
         }
 
@@ -98,12 +115,14 @@ wss.on("connection", async (ws, request) => {
                 ws.send(JSON.stringify({ type: "error", message: "Invalid draw payload" }));
                 return;
             }
+            const dbRoomId = client.roomIds.get(roomId);
+            if (!dbRoomId) return;
 
             if (!client.isGuest && client.userId) {
                 try {
                     await prismaClient.chat.create({
                         data: {
-                            roomId: Number(roomId),
+                            roomId: dbRoomId,
                             message: JSON.stringify({ shape }),
                             userId: client.userId,
                         },
@@ -124,15 +143,17 @@ wss.on("connection", async (ws, request) => {
                 ws.send(JSON.stringify({ type: "error", message: "Invalid update payload" }));
                 return;
             }
+            const dbRoomId = client.roomIds.get(roomId);
+            if (!dbRoomId) return;
 
             if (!client.isGuest && client.userId) {
                 try {
                     await prismaClient.chat.deleteMany({
-                        where: { roomId: Number(roomId), message: { contains: shapeId } },
+                        where: { roomId: dbRoomId, message: { contains: shapeId } },
                     });
                     await prismaClient.chat.create({
                         data: {
-                            roomId: Number(roomId),
+                            roomId: dbRoomId,
                             message: JSON.stringify({ shape }),
                             userId: client.userId,
                         },
@@ -156,7 +177,7 @@ wss.on("connection", async (ws, request) => {
             if (!client.isGuest && client.userId) {
                 try {
                     await prismaClient.chat.deleteMany({
-                        where: { roomId: Number(roomId), message: { contains: shapeId } },
+                        where: { roomId: client.roomIds.get(roomId)!, message: { contains: shapeId } },
                     });
                 } catch {
                 }
@@ -175,10 +196,10 @@ wss.on("connection", async (ws, request) => {
             }
             if (!client.isGuest && client.userId) {
                 try {
-                    await prismaClient.chat.deleteMany({ where: { roomId: Number(roomId) } });
+                    await prismaClient.chat.deleteMany({ where: { roomId: client.roomIds.get(roomId)! } });
                     for (const shape of shapes) {
                         await prismaClient.chat.create({
-                            data: { roomId: Number(roomId), message: JSON.stringify({ shape }), userId: client.userId },
+                            data: { roomId: client.roomIds.get(roomId)!, message: JSON.stringify({ shape }), userId: client.userId },
                         });
                     }
                 } catch {
@@ -197,7 +218,7 @@ wss.on("connection", async (ws, request) => {
             if (!client.isGuest && client.userId) {
                 try {
                     await prismaClient.chat.deleteMany({
-                        where: { roomId: Number(roomId) },
+                        where: { roomId: client.roomIds.get(roomId)! },
                     });
                 } catch {
                 }
@@ -224,7 +245,7 @@ wss.on("connection", async (ws, request) => {
                     if (user) userName = user.name;
                     await prismaClient.chat.create({
                         data: {
-                            roomId: Number(roomId),
+                            roomId: client.roomIds.get(roomId)!,
                             message,
                             userId: client.userId,
                         },

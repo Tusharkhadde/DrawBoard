@@ -17,15 +17,42 @@ model User {
   googleId      String?    @unique
   rooms         Room[]
   chats         Chat[]
+  accessRequests AccessRequest[]
+  roomAccess     RoomAccess[]
 }
 
 model Room {
   id          Int       @id @default(autoincrement())
   slug        String    @unique
+  publicKey   String    @unique @default(uuid())
   createdAt   DateTime  @default(now())
   adminId     String
   admin       User      @relation(fields: [adminId], references: [id])
   chats       Chat[]
+  accessRequests AccessRequest[]
+  members     RoomAccess[]
+}
+
+model RoomAccess {
+  roomId    Int
+  userId    String
+  createdAt DateTime @default(now())
+  room      Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([roomId, userId])
+  @@index([userId])
+}
+
+model AccessRequest {
+  id        Int      @id @default(autoincrement())
+  roomId    Int
+  userId    String
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+  room      Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([roomId, userId])
+  @@index([roomId, status])
 }
 
 model Chat {
