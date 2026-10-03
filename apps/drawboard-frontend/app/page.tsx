@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { ArrowRight, ArrowUpRight, Check, Copy, FolderOpen, Loader2, MoreHorizontal, Plus, Search, Sparkles, Users, ExternalLink } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Bell, Check, Copy, FolderOpen, Loader2, MoreHorizontal, Plus, Search, Sparkles, Users, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -34,6 +34,8 @@ function Dashboard() {
   const [createError, setCreateError] = useState("");
   const [joinError, setJoinError] = useState("");
   const [reload, setReload] = useState(0);
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
+  const [approving, setApproving] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -48,6 +50,41 @@ function Dashboard() {
       active = false;
     };
   }, [reload]);
+
+  const loadAccessRequests = useCallback(async () => {
+    if (!rooms.length) {
+      setAccessRequests([]);
+      return;
+    }
+    const grouped = await Promise.all(rooms.map(async (room) => {
+      try {
+        const result = await api.get<{ requests: AccessRequest[] }>(`/rooms/${room.publicKey}/access-requests`);
+        return result.requests.map((request) => ({ ...request, roomKey: room.publicKey, roomName: room.slug }));
+      } catch {
+        return [];
+      }
+    }));
+    setAccessRequests(grouped.flat());
+  }, [rooms]);
+
+  useEffect(() => {
+    void loadAccessRequests();
+    const timer = setInterval(() => void loadAccessRequests(), 15000);
+    return () => clearInterval(timer);
+  }, [loadAccessRequests]);
+
+  async function approveAccess(request: AccessRequest) {
+    setApproving(request.id);
+    try {
+      await api.post(`/rooms/${request.roomKey}/access-requests/${request.id}/approve`);
+      setAccessRequests((current) => current.filter((item) => item.id !== request.id));
+      toast.success(`${request.user.name} can now access ${request.roomName}`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Couldn't approve this request.");
+    } finally {
+      setApproving(null);
+    }
+  }
 
   async function createRoom(event: FormEvent) {
     event.preventDefault();
@@ -120,6 +157,37 @@ function Dashboard() {
             </Link>
           </Button>
         </div>
+
+        {accessRequests.length > 0 && (
+          <section aria-labelledby="access-requests-title" className="mt-8 rounded-2xl border border-primary/20 bg-primary/[0.045] p-5 shadow-soft">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <span className="relative grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <Bell size={18} />
+                  <span className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">{accessRequests.length}</span>
+                </span>
+                <div>
+                  <h2 id="access-requests-title" className="font-semibold tracking-tight">Access requests</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">People are waiting for permission to join your boards.</p>
+                </div>
+              </div>
+              <span className="hidden rounded-full bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground sm:inline-flex">Updates automatically</span>
+            </div>
+            <div className="mt-4 divide-y divide-border/70 rounded-xl border border-border/70 bg-background/70">
+              {accessRequests.map((request) => (
+                <div key={request.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="font-medium">{request.user.name} <span className="font-normal text-muted-foreground">wants to join</span> {request.roomName}</p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{request.user.email}</p>
+                  </div>
+                  <Button size="sm" onClick={() => approveAccess(request)} disabled={approving === request.id} className="shrink-0">
+                    {approving === request.id ? <Loader2 className="animate-spin" /> : <Check />} Approve access
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Actions */}
         <div className="mt-10 grid gap-5 lg:grid-cols-2">
@@ -235,6 +303,13 @@ function Dashboard() {
     </div>
   );
 }
+
+type AccessRequest = {
+  id: number;
+  roomKey?: string;
+  roomName?: string;
+  user: { id: string; name: string; email: string; photo?: string | null };
+};
 
 function EmptyState({ icon: Icon, title, description, children }: { icon: typeof FolderOpen; title: string; description: string; children?: React.ReactNode }) {
   return (
