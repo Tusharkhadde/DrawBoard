@@ -5,7 +5,7 @@ import { Separator } from "@/components/ui/separator";
 
 const columns = [
   { title: "Product", links: [{ label: "Features", href: "/features" }, { label: "How it works", href: "/#how-it-works" }, { label: "Quick sketch", href: "/canvas/guest" }] },
-  { title: "Company", links: [{ label: "About", href: "/about" }, { label: "GitHub", href: "https://github.com", external: true }] },
+  { title: "Company", links: [{ label: "About", href: "/about" }, { label: "GitHub", href: "https://github.com/Tusharkhadde/DrawBoard", external: true }] },
   { title: "Account", links: [{ label: "Log in", href: "/signin" }, { label: "Create an account", href: "/signup" }] },
 ];
 
