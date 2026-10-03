@@ -9,8 +9,29 @@ import { prismaClient } from "@repo/db/client";
 import cors from "cors";
 
 const app = express();
+const allowedOrigins = new Set(
+    (process.env.FRONTEND_ORIGINS ?? "https://drawboard-peach.vercel.app,http://localhost:3000")
+        .split(",")
+        .map((origin) => origin.trim().replace(/\/$/, ""))
+        .filter(Boolean),
+);
+
+app.use(cors({
+    origin(origin, callback) {
+        // Allow server-to-server requests and configured browser origins only.
+        if (!origin || allowedOrigins.has(origin.replace(/\/$/, ""))) {
+            callback(null, true);
+            return;
+        }
+        callback(new Error("Origin not allowed by CORS"));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    optionsSuccessStatus: 204,
+}));
+app.options("*", cors());
 app.use(express.json());
-app.use(cors());
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
 
